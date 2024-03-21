@@ -5,3 +5,7 @@ pandas
 scipy
 pyteomics
 bokeh
+lxml
+sqlalchemy
+pynumpress
+scikit-learn
