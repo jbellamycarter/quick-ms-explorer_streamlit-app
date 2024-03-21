@@ -79,7 +79,7 @@ with col1:
             ("m/z", "@x")
             ]
 
-        labels = LabelSet(x='x', y='y', text='desc', source=peaks, render_mode='canvas')
+        labels = LabelSet(x='x', y='y', text='desc', source=peaks)
 
 with col2:
     if raw_file is not None:
