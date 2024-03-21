@@ -4,7 +4,7 @@ numpy
 pandas
 scipy
 pyteomics
-bokeh
+bokeh==2.4.3
 lxml
 sqlalchemy
 pynumpress
