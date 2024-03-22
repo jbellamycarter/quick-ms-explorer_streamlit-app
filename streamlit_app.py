@@ -35,6 +35,29 @@ def detect_peaks(spectrum, threshold=5, distance=4, prominence=0.8, width=3, cen
 
     return peaks
 
+def average_spectra(spectra, filter_string="averaged spectrum"):
+    """Average several spectra into one spectrum. Tolerant to variable m/z bins.
+    Assumes spectra are scans from pyteomics reader object."""
+
+    ref_scan = np.unique(spectra[0]['m/z array'])
+    bin_width = np.min(np.diff(ref_scan)) # Determines minimum spacing between m/z for interpolation
+    ref_mz = np.arange(ref_scan[0], ref_scan[-1], bin_width)
+    merge_int = np.zeros_like(ref_mz)
+
+    for scan in spectra:
+        tmp_mz = scan['m/z array']
+        tmp_int = scan['intensity array']
+        merge_int += np.interp(ref_mz, tmp_mz, tmp_int, left=0, right=0)
+
+    merge_int = merge_int / len(spectra)
+
+    avg_spec = spectra[0].copy()  # Make copy of first spectrum metadata
+    avg_spec['m/z array'] = ref_mz
+    avg_spec['intensity array'] = merge_int
+    avg_spec['scanList']['scan'][0]['filter string'] = "AV: {:.2f} - {:.2f}".format(spectra[0]['scanList']['scan'][0]['scan start time'], spectra[-1]['scanList']['scan'][0]['scan start time'])
+
+    return avg_spec
+
 
 ## APP LAYOUT ##
 
@@ -78,7 +101,13 @@ with spectrum_tab:
             scan_filter = st.selectbox("Select a scan filter", scan_filter_list, help="Filter scans by spectrum description. `all` shows all scans.")
 
             if len(scan_filter_list[scan_filter]) > 1:
-                scan_number = st.select_slider("Select a scan", scan_filter_list[scan_filter], help="Only scans with matching filter can be selected.")
+                tog_avg_scans = st.toggle("Average scans")
+                if tog_avg_scans:
+                    scan_range = st.select_slider("Select scans to average", scan_filter_list[scan_filter], value=(scan_filter_list[scan_filter][0], scan_filter_list[scan_filter][-1]), help="Only scans with matching filter can be selected.")
+                    scan_number = "{}-{}".format(*scan_range)
+                else:
+                    scan_number = st.select_slider("Select a scan to display", scan_filter_list[scan_filter], help="Only scans with matching filter can be selected.")
+
             else:
                 scan_number = scan_filter_list[scan_filter][0]
                 st.write("Selected scan: ", scan_number)
@@ -87,7 +116,13 @@ with spectrum_tab:
 
             labels_on = st.toggle("_m/z_ labels on", help="Display all peak labels on plot.")
 
-            selected_scan = reader[scan_number]
+            if tog_avg_scans:
+                selected_scan = average_spectra(reader[scan_range[0]:scan_range[1]])
+            else:
+                selected_scan = reader[scan_number]
+            scan_start_time = selected_scan['scanList']['scan'][0]['scan start time']
+
+            st.write("Scan time: ", scan_start_time, scan_start_time.unit_info)
 
             ## USE settings from col1
             if 'centroid spectrum' in scan:
@@ -111,10 +146,10 @@ with spectrum_tab:
     with col2:
         if raw_file is not None and selected_scan:
             
-            if 'filter string' in scan['scanList']['scan'][0]:
-                filter = scan['scanList']['scan'][0]['filter string']
-            elif 'spectrum title' in scan:
-                filter = scan['spectrum title']
+            if 'filter string' in selected_scan['scanList']['scan'][0]:
+                filter = selected_scan['scanList']['scan'][0]['filter string']
+            elif 'spectrum title' in selected_scan:
+                filter = selected_scan['spectrum title']
             else:
                 filter = ""
             spectrum_title = f"#{scan_number}; {filter}"
@@ -152,6 +187,9 @@ with spectrum_tab:
             spectrum_plot.add_tools(hover)
 
             st.bokeh_chart(spectrum_plot, use_container_width=True)
+
+            if st.button("Show data"):
+                st.write(pd.DataFrame({'m/z': selected_scan['m/z array'], 'intensity': selected_scan['intensity array']}))
 
 with chromatogram_tab:
     st.write("Coming soon!")
