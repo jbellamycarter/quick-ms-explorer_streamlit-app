@@ -74,7 +74,6 @@ def get_xic(mz, scans, mz_tol=0.1, ms_level=1):
         xic.append(scan_int)
     return {'time array': np.array(rt), 'intensity array': np.array(xic)}
 
-@st.cache_data
 def generate_tic_bpc(_data_reader):
     total_ion_chromatograms = {}
     base_peak_chromatograms = {}
@@ -98,7 +97,6 @@ def generate_tic_bpc(_data_reader):
 
     return total_ion_chromatograms, base_peak_chromatograms
 
-@st.cache_data
 def load_data(_raw_file):
     reader = mzml.read(_raw_file, use_index=True)
 
