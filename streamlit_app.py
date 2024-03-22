@@ -129,10 +129,44 @@ st.sidebar.markdown("This is a simple data explorer for mass spectrometry data s
 raw_file = st.sidebar.file_uploader("Select a file", type = ['mzml'], key="rawfile", help="Select an mzML file to explore.")
 
 if raw_file is not None:
-    reader, scan_filter_list = load_data(raw_file)
+    reader = mzml.read(raw_file, use_index=True)
+
+    scan_filter_list = {'all': []}
+    reader.reset()
+    for scan in reader:
+        idx = scan['index']
+        scan_filter_list['all'].append(idx)
+        if 'filter string' in scan['scanList']['scan'][0]:
+            filter = scan['scanList']['scan'][0]['filter string']
+        elif 'spectrum title' in scan:
+            filter = scan['spectrum title']
+        else:
+            continue    
+        
+        if filter not in scan_filter_list:
+            scan_filter_list[filter] = []
+        scan_filter_list[filter].append(idx)
 
     # Generate TIC and BPC
-    total_ion_chromatograms, base_peak_chromatograms = generate_tic_bpc(reader)
+    total_ion_chromatograms = {}
+    base_peak_chromatograms = {}
+    reader.reset()
+    for scan in reader:
+        _ms_level = scan['ms level']
+        if _ms_level not in total_ion_chromatograms:
+            total_ion_chromatograms[_ms_level] = {'time array': [], 'intensity array': []}
+            base_peak_chromatograms[_ms_level] = {'time array': [], 'intensity array': []}
+        _time = scan['scanList']['scan'][0]['scan start time']
+        total_ion_chromatograms[_ms_level]['time array'].append(_time)
+        base_peak_chromatograms[_ms_level]['time array'].append(_time)
+        total_ion_chromatograms[_ms_level]['intensity array'].append(scan['total ion current'])
+        base_peak_chromatograms[_ms_level]['intensity array'].append(scan['base peak intensity'])
+    
+    for _ms_level in total_ion_chromatograms:
+        total_ion_chromatograms[_ms_level]['time array'] = np.array(total_ion_chromatograms[_ms_level]['time array'])
+        total_ion_chromatograms[_ms_level]['intensity array'] = np.array(total_ion_chromatograms[_ms_level]['intensity array'])
+        base_peak_chromatograms[_ms_level]['time array'] = np.array(base_peak_chromatograms[_ms_level]['time array'])
+        base_peak_chromatograms[_ms_level]['intensity array'] = np.array(base_peak_chromatograms[_ms_level]['intensity array'])
 
 spectrum_tab, chromatogram_tab = st.tabs(["Spectrum", "Chromatogram"])
 
