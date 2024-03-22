@@ -8,7 +8,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 from scipy import signal
-from bokeh.models import ColumnDataSource, LabelSet, HoverTool, Range1d, Toggle
+from bokeh.models import ColumnDataSource, LabelSet, HoverTool, CrosshairTool, Range1d, Toggle
 from bokeh.plotting import figure
 
 from pyteomics import mgf, mzml, pylab_aux, mass, parser
@@ -100,7 +100,7 @@ def generate_tic_bpc(_data_reader):
 
 @st.cache_data
 def load_data(_raw_file):
-    reader = mzml.read(raw_file, use_index=True)
+    reader = mzml.read(_raw_file, use_index=True)
 
     scan_filter_list = {'all': []}
     reader.reset()
@@ -269,13 +269,6 @@ with chromatogram_tab:
                 selected_chromatogram = get_xic(selected_mz, reader[0:-1], mz_tolerance, ms_level)
                 chromatogram_title = f"XIC: {selected_mz}, {mz_tolerance}"
 
-            chrom_peaks_ = detect_peaks(selected_chromatogram, threshold = 2)
-            chrom_peaks = ColumnDataSource(data=dict(
-                x = selected_chromatogram['time array'][chrom_peaks_],
-                y = selected_chromatogram['intensity array'][chrom_peaks_],
-                desc = ["%.2f" % x for x in selected_chromatogram['time array'][chrom_peaks_]]
-                ))
-
             CHROMTOOLTIPS = [
                 ("time", "@x{0.00}"),
                 ("int", "@y{0.0}")
@@ -300,7 +293,6 @@ with chromatogram_tab:
             # PLOT Chromatogram
 
             chromatogram_plot.line(selected_chromatogram['time array'], selected_chromatogram['intensity array'], line_width=1.5, color='black')
-            cr = chromatogram_plot.circle('x', 'y', source=chrom_peaks, alpha=0.2, size = 8, hover_alpha=0.8, color='dodgerblue')
-            chrom_hover = HoverTool(renderers=[cr], tooltips=CHROMTOOLTIPS)
-            chromatogram_plot.add_tools(chrom_hover)
+            chrom_hover = HoverTool(tooltips=CHROMTOOLTIPS, mode='vline')
+            chromatogram_plot.add_tools(chrom_hover, CrosshairTool(dimensions='height'))
             st.bokeh_chart(chromatogram_plot, use_container_width=True)
