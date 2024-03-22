@@ -15,7 +15,7 @@ from pyteomics import mgf, mzml, pylab_aux, mass, parser
 
 ## FUNCTIONS ##
 
-def detect_peaks(spectrum, threshold=5, distance=4, prominence=0.8, width=3, centroid=False):
+def detect_peaks(spectrum, threshold=5, distance=4, prominence=0.8, width=2, centroid=False):
     """Peak picking from a given spectrum using the relative maxima
     algorithm using a window of size order.
 
@@ -59,6 +59,43 @@ def average_spectra(spectra, bin_width=None):
 
     return avg_spec
 
+def get_xic(mz, scans, mz_tol=0.1, ms_level=1):
+    xic = []
+    rt = []
+    for i, scan in enumerate(scans):
+        if scan['ms level'] is not ms_level:
+            continue
+        rt.append(scan['scanList']['scan'][0]['scan start time'])
+        idx = np.where(np.abs(scan['m/z array'] - mz) < mz_tol)[0]
+        if idx.any():
+            scan_int = scan['intensity array'][idx].sum()
+        else:
+            scan_int = 0
+        xic.append(scan_int)
+    return {'time array': np.array(rt), 'intensity array': np.array(xic)}
+
+def generate_tic_bpc(_data_reader):
+    total_ion_chromatograms = {}
+    base_peak_chromatograms = {}
+    _data_reader.reset()
+    for scan in _data_reader:
+        _ms_level = scan['ms level']
+        if _ms_level not in total_ion_chromatograms:
+            total_ion_chromatograms[_ms_level] = {'time array': [], 'intensity array': []}
+            base_peak_chromatograms[_ms_level] = {'time array': [], 'intensity array': []}
+        _time = scan['scanList']['scan'][0]['scan start time']
+        total_ion_chromatograms[_ms_level]['time array'].append(_time)
+        base_peak_chromatograms[_ms_level]['time array'].append(_time)
+        total_ion_chromatograms[_ms_level]['intensity array'].append(scan['total ion current'])
+        base_peak_chromatograms[_ms_level]['intensity array'].append(scan['base peak intensity'])
+    
+    for _ms_level in total_ion_chromatograms:
+        total_ion_chromatograms[_ms_level]['time array'] = np.array(total_ion_chromatograms[_ms_level]['time array'])
+        total_ion_chromatograms[_ms_level]['intensity array'] = np.array(total_ion_chromatograms[_ms_level]['intensity array'])
+        base_peak_chromatograms[_ms_level]['time array'] = np.array(base_peak_chromatograms[_ms_level]['time array'])
+        base_peak_chromatograms[_ms_level]['intensity array'] = np.array(base_peak_chromatograms[_ms_level]['intensity array'])
+
+    return total_ion_chromatograms, base_peak_chromatograms
 
 ## APP LAYOUT ##
 
@@ -88,18 +125,20 @@ if raw_file is not None:
             scan_filter_list[filter] = []
         scan_filter_list[filter].append(idx)
 
+    # Generate TIC and BPC
+    total_ion_chromatograms, base_peak_chromatograms = generate_tic_bpc(reader)
+
 spectrum_tab, chromatogram_tab = st.tabs(["Spectrum", "Chromatogram"])
 
 with spectrum_tab:
     st.markdown("Explore spectra, scan by scan.")
 
-    col1, col2 = st.columns([0.3, 0.7])
+    scol1, scol2 = st.columns([0.3, 0.7])
 
-    with col1:
+    with scol1:
         if raw_file is not None:
             # PLOT SETTINGS
             st.markdown("### Settings")
-            num_scans = reader[-1]['index']
             scan_filter = st.selectbox("Select a scan filter", scan_filter_list, help="Filter scans by spectrum description. `all` shows all scans.")
 
             if len(scan_filter_list[scan_filter]) > 1:
@@ -129,7 +168,7 @@ with spectrum_tab:
 
             st.write("Scan time: ", scan_start_time, scan_start_time.unit_info)
 
-            ## USE settings from col1
+            ## USE settings from scol1
             if 'centroid spectrum' in selected_scan:
                 st.write("Scan contains centroid data.")
                 peaks_ = detect_peaks(selected_scan, threshold = label_threshold, centroid = True)
@@ -149,7 +188,7 @@ with spectrum_tab:
             labels = LabelSet(x='x', y='y', text='desc', source=peaks, text_font_size='8pt', text_color='black')
 
 
-    with col2:
+    with scol2:
         if raw_file is not None and selected_scan:
             
             if 'filter string' in selected_scan['scanList']['scan'][0]:
@@ -161,7 +200,7 @@ with spectrum_tab:
             spectrum_title = f"#{scan_number}; {filter}"
             
             spectrum_plot = figure(
-                                    title=spectrum_title,
+                                    title=raw_file.name + "\n" + spectrum_title,
                                     x_axis_label='m/z',
                                     y_axis_label='intensity',
                                     tools='pan,box_zoom,xbox_zoom,reset,save',
@@ -189,8 +228,8 @@ with spectrum_tab:
             
             if labels_on:
                 spectrum_plot.add_layout(labels)
-            hover = HoverTool(renderers=[r], tooltips=TOOLTIPS)
-            spectrum_plot.add_tools(hover)
+            spec_hover = HoverTool(renderers=[r], tooltips=TOOLTIPS)
+            spectrum_plot.add_tools(spec_hover)
 
             st.bokeh_chart(spectrum_plot, use_container_width=True)
 
@@ -198,4 +237,62 @@ with spectrum_tab:
                 st.write(pd.DataFrame({'m/z': selected_scan['m/z array'], 'intensity': selected_scan['intensity array']}))
 
 with chromatogram_tab:
-    st.write("Coming soon!")
+    st.markdown("Explore chromatograms. Generate eXtracted Ion Chromatograms (XIC) for selected ions.")
+
+    ccol1, ccol2 = st.columns([0.3, 0.7])
+
+    with ccol1:
+        if raw_file is not None:
+            # PLOT SETTINGS
+            st.markdown("### Settings")
+
+            chromatogram_type = st.radio("Chromatogram type", ['TIC', 'BPC', 'XIC'], horizontal=True, help="`TIC`: total ion chromatogram.  `BPC`: base peak chromatogram.  `XIC`: extracted ion chromatogram")
+            ms_level = st.selectbox("MS Level", [1,2], index=1, help="Level of MS (i.e. `2` for MS/MS).")
+            
+            if chromatogram_type == 'TIC':
+                selected_chromatogram = total_ion_chromatograms[ms_level]
+                chromatogram_title = "TIC"
+            elif chromatogram_type == 'BPC':
+                selected_chromatogram = base_peak_chromatograms[ms_level]
+                chromatogram_title = "BPC"
+            else:
+                selected_mz = st.number_input("Select _m/z_ to extract.")
+                mz_tolerance = st.number_input("Window (u)", value=0.1, help="Window (+/-) around selected _m/z_ to generate chromatogram.")
+                selected_chromatogram = get_xic(selected_mz, reader[0:-1], mz_tolerance, ms_level)
+                chromatogram_title = f"XIC: {selected_mz}, {mz_tolerance}"
+
+            chrom_peaks_ = detect_peaks(selected_chromatogram, threshold = 2)
+            chrom_peaks = ColumnDataSource(data=dict(
+                x = selected_chromatogram['time array'][chrom_peaks_],
+                y = selected_chromatogram['intensity array'][chrom_peaks_],
+                desc = ["%.2f" % x for x in selected_chromatogram['time array'][chrom_peaks_]]
+                ))
+
+            CHROMTOOLTIPS = [
+                ("time", "@x{0.00}"),
+                ("int", "@y{0.0}")
+                ]
+
+    with ccol2:
+        if raw_file is not None:
+            
+            chromatogram_plot = figure(
+                                    title=raw_file.name + "\n" + chromatogram_title,
+                                    x_axis_label='time',
+                                    y_axis_label='intensity',
+                                    tools='pan,box_zoom,xbox_zoom,reset,save',
+                                    active_drag='xbox_zoom'
+                                    )
+            # Format axes
+            chromatogram_plot.left[0].formatter.use_scientific = True
+            chromatogram_plot.left[0].formatter.power_limit_high = 0
+            chromatogram_plot.left[0].formatter.precision = 1
+            chromatogram_plot.y_range.start = 0
+
+            # PLOT Chromatogram
+
+            chromatogram_plot.line(selected_chromatogram['time array'], selected_chromatogram['intensity array'], line_width=1.5, color='black')
+            cr = chromatogram_plot.circle('x', 'y', source=chrom_peaks, alpha=0.2, size = 8, hover_alpha=0.8, color='dodgerblue')
+            chrom_hover = HoverTool(renderers=[cr], tooltips=CHROMTOOLTIPS)
+            chromatogram_plot.add_tools(chrom_hover)
+            st.bokeh_chart(chromatogram_plot, use_container_width=True)
