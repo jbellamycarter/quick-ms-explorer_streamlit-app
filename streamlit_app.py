@@ -128,7 +128,7 @@ st.sidebar.markdown("This is a simple data explorer for mass spectrometry data s
 
 ## Import Raw File
 
-raw_file = st.sidebar.file_uploader("Select a file", type = ['mzml'], key="rawfile", on_change=st.cache_data.clear(), help="Select an mzML file to explore.")
+raw_file = st.sidebar.file_uploader("Select a file", type = ['mzml'], key="rawfile", help="Select an mzML file to explore.")
 
 if raw_file is not None:
     reader, scan_filter_list = load_data(raw_file)
