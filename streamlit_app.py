@@ -8,7 +8,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 from scipy import signal
-from bokeh.models import ColumnDataSource, LabelSet, HoverTool, Range1d
+from bokeh.models import ColumnDataSource, LabelSet, HoverTool, Range1d, Toggle
 from bokeh.plotting import figure
 
 from pyteomics import mgf, mzml, pylab_aux, mass, parser
@@ -35,12 +35,13 @@ def detect_peaks(spectrum, threshold=5, distance=4, prominence=0.8, width=3, cen
 
     return peaks
 
-def average_spectra(spectra, filter_string="averaged spectrum"):
+def average_spectra(spectra, bin_width=None):
     """Average several spectra into one spectrum. Tolerant to variable m/z bins.
     Assumes spectra are scans from pyteomics reader object."""
 
     ref_scan = np.unique(spectra[0]['m/z array'])
-    bin_width = np.min(np.diff(ref_scan)) # Determines minimum spacing between m/z for interpolation
+    if bin_width is None:
+        bin_width = np.min(np.diff(ref_scan)) # Determines minimum spacing between m/z for interpolation
     ref_mz = np.arange(ref_scan[0], ref_scan[-1], bin_width)
     merge_int = np.zeros_like(ref_mz)
 
@@ -61,6 +62,7 @@ def average_spectra(spectra, filter_string="averaged spectrum"):
 
 ## APP LAYOUT ##
 
+st.set_page_config(page_title= "Quick mzML Explorer", layout="wide", menu_items = {'about': "This is a very simple data explorer for mzML mass spectrometry data. Written by Jedd Bellamy-Carter (Loughborough University, UK)."})
 st.sidebar.title("Quick mzML Data Explorer")
 st.sidebar.markdown("This is a simple data explorer for mass spectrometry data stored in `.mzmL` data format")
 
@@ -101,7 +103,7 @@ with spectrum_tab:
             scan_filter = st.selectbox("Select a scan filter", scan_filter_list, help="Filter scans by spectrum description. `all` shows all scans.")
 
             if len(scan_filter_list[scan_filter]) > 1:
-                tog_avg_scans = st.toggle("Average scans")
+                tog_avg_scans = st.toggle("Average scans", help="Toggle whether to generate averaged spectrum.")
                 if tog_avg_scans:
                     scan_range = st.select_slider("Select scans to average", scan_filter_list[scan_filter], value=(scan_filter_list[scan_filter][0], scan_filter_list[scan_filter][-1]), help="Only scans with matching filter can be selected.")
                     scan_number = "{}-{}".format(*scan_range)
@@ -117,7 +119,10 @@ with spectrum_tab:
             labels_on = st.toggle("_m/z_ labels on", help="Display all peak labels on plot.")
 
             if tog_avg_scans:
-                selected_scan = average_spectra(reader[scan_range[0]:scan_range[1]])
+                if 'centroid spectrum' in reader[scan_range[0]]:
+                    selected_scan = average_spectra(reader[scan_range[0]:scan_range[1]], bin_width=0.5)
+                else:
+                    selected_scan = average_spectra(reader[scan_range[0]:scan_range[1]])
             else:
                 selected_scan = reader[scan_number]
             scan_start_time = selected_scan['scanList']['scan'][0]['scan start time']
@@ -125,7 +130,7 @@ with spectrum_tab:
             st.write("Scan time: ", scan_start_time, scan_start_time.unit_info)
 
             ## USE settings from col1
-            if 'centroid spectrum' in scan:
+            if 'centroid spectrum' in selected_scan:
                 st.write("Scan contains centroid data.")
                 peaks_ = detect_peaks(selected_scan, threshold = label_threshold, centroid = True)
             else:
@@ -137,10 +142,11 @@ with spectrum_tab:
                 ))
 
             TOOLTIPS = [
-                ("m/z", "@x{0.00}")
+                ("m/z", "@x{0.00}"),
+                ("int", "@y{0.0}")
                 ]
 
-            labels = LabelSet(x='x', y='y', text='desc', source=peaks, text_font_size='8pt')
+            labels = LabelSet(x='x', y='y', text='desc', source=peaks, text_font_size='8pt', text_color='black')
 
 
     with col2:
@@ -179,7 +185,7 @@ with spectrum_tab:
                 spectrum_plot.line(selected_scan['m/z array'], selected_scan['intensity array'], line_width = 1.5, color='black')
             
             # Set Peak labelling
-            r = spectrum_plot.circle('x', 'y', source=peaks, alpha=0.2, size = 8, hover_alpha=0.8)
+            r = spectrum_plot.circle('x', 'y', source=peaks, alpha=0.2, size = 8, hover_alpha=0.8, color='dodgerblue')
             
             if labels_on:
                 spectrum_plot.add_layout(labels)
