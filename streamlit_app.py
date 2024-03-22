@@ -74,6 +74,7 @@ def get_xic(mz, scans, mz_tol=0.1, ms_level=1):
         xic.append(scan_int)
     return {'time array': np.array(rt), 'intensity array': np.array(xic)}
 
+@st.cache_data
 def generate_tic_bpc(_data_reader):
     total_ion_chromatograms = {}
     base_peak_chromatograms = {}
@@ -97,16 +98,8 @@ def generate_tic_bpc(_data_reader):
 
     return total_ion_chromatograms, base_peak_chromatograms
 
-## APP LAYOUT ##
-
-st.set_page_config(page_title= "Quick mzML Explorer", layout="wide", menu_items = {'about': "This is a very simple data explorer for mzML mass spectrometry data. Written by Jedd Bellamy-Carter (Loughborough University, UK)."})
-st.sidebar.title("Quick mzML Data Explorer")
-st.sidebar.markdown("This is a simple data explorer for mass spectrometry data stored in `.mzmL` data format")
-
-## Import Raw File
-
-raw_file = st.sidebar.file_uploader("Select a file", type = ['mzml'], key="rawfile", help="Select an mzML file to explore.")
-if raw_file is not None:
+@st.cache_data
+def load_data(_raw_file):
     reader = mzml.read(raw_file, use_index=True)
 
     scan_filter_list = {'all': []}
@@ -124,6 +117,21 @@ if raw_file is not None:
         if filter not in scan_filter_list:
             scan_filter_list[filter] = []
         scan_filter_list[filter].append(idx)
+    
+    return reader, scan_filter_list
+
+## APP LAYOUT ##
+
+st.set_page_config(page_title= "Quick mzML Explorer", layout="wide", menu_items = {'about': "This is a very simple data explorer for mzML mass spectrometry data. Written by Jedd Bellamy-Carter (Loughborough University, UK)."})
+st.sidebar.title("Quick mzML Data Explorer")
+st.sidebar.markdown("This is a simple data explorer for mass spectrometry data stored in `.mzmL` data format")
+
+## Import Raw File
+
+raw_file = st.sidebar.file_uploader("Select a file", type = ['mzml'], key="rawfile", on_change=st.cache_data.clear(), help="Select an mzML file to explore.")
+
+if raw_file is not None:
+    reader, scan_filter_list = load_data(raw_file)
 
     # Generate TIC and BPC
     total_ion_chromatograms, base_peak_chromatograms = generate_tic_bpc(reader)
