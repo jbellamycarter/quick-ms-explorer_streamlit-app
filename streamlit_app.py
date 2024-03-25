@@ -171,7 +171,7 @@ if raw_file is not None:
 spectrum_tab, chromatogram_tab = st.tabs(["Spectrum", "Chromatogram"])
 
 with spectrum_tab:
-    st.markdown("Explore spectra, scan by scan.")
+    st.markdown("Explore spectra, scan by scan. Woo!")
 
     scol1, scol2 = st.columns([0.3, 0.7])
 
