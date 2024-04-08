@@ -30,10 +30,10 @@ def detect_peaks(spectrum, threshold=5, distance=4, prominence=0.8, width=2, cen
     rel_threshold = spectrum['intensity array'].max() * (threshold / 100)
     if centroid:
         peaks = np.where(spectrum['intensity array'] > rel_threshold)[0]
+        return peaks
     else:
         peaks, properties = signal.find_peaks(spectrum['intensity array'], height=rel_threshold, prominence=prominence, width=width, distance=distance)
-
-    return peaks, properties
+        return peaks, properties
 
 def _get_centroid(spectrum, peaks, properties):
     """Returns centroids for peaks."""
@@ -43,7 +43,7 @@ def _get_centroid(spectrum, peaks, properties):
         centroids[i] = np.sum(spectrum['intensity array'][_peak_range] * spectrum['m/z array'][_peak_range]) / spectrum['intensity array'][_peak_range].sum()
     return centroids
 
-def average_spectra(spectra, bin_width=None):
+def average_spectra(spectra, bin_width=None, filter_string=None):
     """Average several spectra into one spectrum. Tolerant to variable m/z bins.
     Assumes spectra are scans from pyteomics reader object.
     """
@@ -63,7 +63,7 @@ def average_spectra(spectra, bin_width=None):
     avg_spec = spectra[0].copy()  # Make copy of first spectrum metadata
     avg_spec['m/z array'] = ref_mz
     avg_spec['intensity array'] = merge_int
-    avg_spec['scanList']['scan'][0]['filter string'] = "AV: {:.2f} - {:.2f}".format(spectra[0]['scanList']['scan'][0]['scan start time'], spectra[-1]['scanList']['scan'][0]['scan start time'])
+    avg_spec['scanList']['scan'][0]['filter string'] = "AV: {:.2f}-{:.2f}; {}".format(spectra[0]['scanList']['scan'][0]['scan start time'], spectra[-1]['scanList']['scan'][0]['scan start time'], filter_string)
 
     return avg_spec
 
@@ -73,9 +73,11 @@ def get_xic(mz, scans, mz_tol=0.1, ms_level=1):
     """
     xic = []
     rt = []
+    idxs = []
     for i, scan in enumerate(scans):
         if scan['ms level'] is not ms_level:
             continue
+        idxs.append(scan['index'])
         rt.append(scan['scanList']['scan'][0]['scan start time'])
         idx = np.where(np.abs(scan['m/z array'] - mz) < mz_tol)[0]
         if idx.any():
@@ -83,7 +85,7 @@ def get_xic(mz, scans, mz_tol=0.1, ms_level=1):
         else:
             scan_int = 0
         xic.append(scan_int)
-    return {'time array': np.array(rt), 'intensity array': np.array(xic)}
+    return {'index array': np.array(idxs), 'time array': np.array(rt), 'intensity array': np.array(xic)}
 
 def generate_tic_bpc(_data_reader):
     """Returns Total Ion Chromatogram (TIC) and Base Peak Chromatograms (BPC)
@@ -95,18 +97,20 @@ def generate_tic_bpc(_data_reader):
     for scan in _data_reader:
         _ms_level = scan['ms level']
         if _ms_level not in total_ion_chromatograms:
-            total_ion_chromatograms[_ms_level] = {'time array': [], 'intensity array': []}
-            base_peak_chromatograms[_ms_level] = {'time array': [], 'intensity array': []}
+            total_ion_chromatograms[_ms_level] = {'index array': [], 'time array': [], 'intensity array': []}
+            base_peak_chromatograms[_ms_level] = {'index array': [], 'time array': [], 'intensity array': []}
         _time = scan['scanList']['scan'][0]['scan start time']
+        total_ion_chromatograms[_ms_level]['index array'].append(scan['index'])
         total_ion_chromatograms[_ms_level]['time array'].append(_time)
-        base_peak_chromatograms[_ms_level]['time array'].append(_time)
         total_ion_chromatograms[_ms_level]['intensity array'].append(scan['total ion current'])
         base_peak_chromatograms[_ms_level]['intensity array'].append(scan['base peak intensity'])
     
     for _ms_level in total_ion_chromatograms:
+        total_ion_chromatograms[_ms_level]['index array'] = np.array(total_ion_chromatograms[_ms_level]['index array'])
         total_ion_chromatograms[_ms_level]['time array'] = np.array(total_ion_chromatograms[_ms_level]['time array'])
         total_ion_chromatograms[_ms_level]['intensity array'] = np.array(total_ion_chromatograms[_ms_level]['intensity array'])
-        base_peak_chromatograms[_ms_level]['time array'] = np.array(base_peak_chromatograms[_ms_level]['time array'])
+        base_peak_chromatograms[_ms_level]['index array'] = total_ion_chromatograms[_ms_level]['index array'].copy()
+        base_peak_chromatograms[_ms_level]['time array'] = total_ion_chromatograms[_ms_level]['time array'].copy()
         base_peak_chromatograms[_ms_level]['intensity array'] = np.array(base_peak_chromatograms[_ms_level]['intensity array'])
 
     return total_ion_chromatograms, base_peak_chromatograms
@@ -176,41 +180,42 @@ with spectrum_tab:
                 scan_number = scan_filter_list[scan_filter][0]
                 st.write("Selected scan: ", scan_number)
 
-            label_threshold = st.number_input("Label Threshold (%)", min_value=0, max_value=100, value=2, help="Label peaks with intensity above threshold% of maximum.")
-
-            labels_on = st.toggle("_m/z_ labels on", help="Display all peak labels on plot.")
-
             if tog_avg_scans:
                 if 'centroid spectrum' in reader[scan_range[0]]:
-                    selected_scan = average_spectra(reader[scan_range[0]:scan_range[1]], bin_width=0.5)
+                    selected_scan = average_spectra(reader[scan_range[0]:scan_range[1]], bin_width=0.5, filter_string=scan_filter)
                 else:
-                    selected_scan = average_spectra(reader[scan_range[0]:scan_range[1]])
+                    selected_scan = average_spectra(reader[scan_range[0]:scan_range[1]], filter_string=scan_filter)
             else:
                 selected_scan = reader[scan_number]
             scan_start_time = selected_scan['scanList']['scan'][0]['scan start time']
 
-            st.write("Scan time: ", scan_start_time, scan_start_time.unit_info)
+            if not tog_avg_scans:
+                st.markdown("Scan time: **%.2f %s**" % (scan_start_time, scan_start_time.unit_info))
+
+            label_threshold = st.number_input("Label Threshold (%)", min_value=0, max_value=100, value=2, help="Label peaks with intensity above threshold% of maximum.")
+            labels_on = st.toggle("_m/z_ labels on", help="Display all peak labels on plot.")
 
             ## USE settings from scol1
             if 'centroid spectrum' in selected_scan:
-                st.write("Scan contains centroid data.")
-                _peaks, _properties = detect_peaks(selected_scan, threshold = label_threshold, centroid = True)
+                st.info("Scan contains centroid data.")
+                _peaks = detect_peaks(selected_scan, threshold = label_threshold, centroid = True)
+                _peak_centroids = selected_scan['m/z array'][_peaks]
             else:
                 _peaks, _properties = detect_peaks(selected_scan, threshold = label_threshold, centroid = False)
                 _peak_centroids = _get_centroid(selected_scan, _peaks, _properties)
             peaks = ColumnDataSource(data=dict(
                 x = selected_scan['m/z array'][_peaks],
                 y = selected_scan['intensity array'][_peaks],
-                desc = ["%.2f" % x for x in _peak_centroids]
+                cent = ["%.2f" % x for x in _peak_centroids]
                 ))
 
             TOOLTIPS = [
                 ("m/z", "@x{0.00}"),
                 ("int", "@y{0.0}"),
-                ("centroid", "@desc")
+                ("centroid", "@cent{0.00}")
                 ]
 
-            labels = LabelSet(x='x', y='y', text='desc', source=peaks, text_font_size='8pt', text_color='black')
+            labels = LabelSet(x='x', y='y', text='cent', source=peaks, text_font_size='8pt', text_color='black')
 
 
     with scol2:
@@ -289,8 +294,9 @@ with chromatogram_tab:
                 chromatogram_title = f"XIC: {selected_mz}, {mz_tolerance}"
 
             CHROMTOOLTIPS = [
-                ("time", "@x{0.00}"),
-                ("int", "@y{0.0}")
+                ("scan", "@{index array}"),
+                ("time", "@{time array}{0.00}"),
+                ("intensity", "@{intensity array}{0.0}")
                 ]
 
     with ccol2:
@@ -311,7 +317,7 @@ with chromatogram_tab:
 
             # PLOT Chromatogram
 
-            chromatogram_plot.line(selected_chromatogram['time array'], selected_chromatogram['intensity array'], line_width=1.5, color='black')
+            chromatogram_plot.line('time array', 'intensity array', source=selected_chromatogram, line_width=1.5, color='black')
             chrom_hover = HoverTool(tooltips=CHROMTOOLTIPS, mode='vline')
             chromatogram_plot.add_tools(chrom_hover, CrosshairTool(dimensions='height'))
             st.bokeh_chart(chromatogram_plot, use_container_width=True)
