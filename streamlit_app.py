@@ -33,12 +33,20 @@ def detect_peaks(spectrum, threshold=5, distance=4, prominence=0.8, width=2, cen
     else:
         peaks, properties = signal.find_peaks(spectrum['intensity array'], height=rel_threshold, prominence=prominence, width=width, distance=distance)
 
-    return peaks
+    return peaks, properties
+
+def _get_centroid(spectrum, peaks, properties):
+    """Returns centroids for peaks."""
+    centroids = np.zeros_like(peaks, dtype='float32')
+    for i, peak in enumerate(peaks):
+        _peak_range = range(properties['left_bases'][i], properties['right_bases'][i])
+        centroids[i] = np.sum(spectrum['intensity array'][_peak_range] * spectrum['m/z array'][_peak_range]) / spectrum['intensity array'][_peak_range].sum()
+    return centroids
 
 def average_spectra(spectra, bin_width=None):
     """Average several spectra into one spectrum. Tolerant to variable m/z bins.
-    Assumes spectra are scans from pyteomics reader object."""
-
+    Assumes spectra are scans from pyteomics reader object.
+    """
     ref_scan = np.unique(spectra[0]['m/z array'])
     if bin_width is None:
         bin_width = np.min(np.diff(ref_scan)) # Determines minimum spacing between m/z for interpolation
@@ -60,6 +68,9 @@ def average_spectra(spectra, bin_width=None):
     return avg_spec
 
 def get_xic(mz, scans, mz_tol=0.1, ms_level=1):
+    """Returns eXtracted Ion Chromatogram (XIC) for an m/z (`mz`) with 
+    a window of +/- `mz_tol`.
+    """
     xic = []
     rt = []
     for i, scan in enumerate(scans):
@@ -75,6 +86,9 @@ def get_xic(mz, scans, mz_tol=0.1, ms_level=1):
     return {'time array': np.array(rt), 'intensity array': np.array(xic)}
 
 def generate_tic_bpc(_data_reader):
+    """Returns Total Ion Chromatogram (TIC) and Base Peak Chromatograms (BPC)
+    for `_data_reader` object, which must be a pyteomics reader object.
+    """
     total_ion_chromatograms = {}
     base_peak_chromatograms = {}
     _data_reader.reset()
@@ -97,11 +111,13 @@ def generate_tic_bpc(_data_reader):
 
     return total_ion_chromatograms, base_peak_chromatograms
 
-def load_data(_raw_file):
-    reader = mzml.read(_raw_file, use_index=True)
+@st.cache_data
+def load_data(raw_file):
+    """Load data from raw file into `reader` object"""
+    reader = mzml.read(raw_file, use_index=True)
 
     scan_filter_list = {'all': []}
-    reader.reset()
+    reader.reset()  # ensures start from beginning of reader object
     for scan in reader:
         idx = scan['index']
         scan_filter_list['all'].append(idx)
@@ -116,7 +132,9 @@ def load_data(_raw_file):
             scan_filter_list[filter] = []
         scan_filter_list[filter].append(idx)
     
-    return reader, scan_filter_list
+    tic, bpc = generate_tic_bpc(reader)
+    
+    return reader, scan_filter_list, tic, bpc
 
 ## APP LAYOUT ##
 
@@ -129,50 +147,15 @@ st.sidebar.markdown("This is a simple data explorer for mass spectrometry data s
 raw_file = st.sidebar.file_uploader("Select a file", type = ['mzml'], key="rawfile", help="Select an mzML file to explore.")
 
 if raw_file is not None:
-    reader = mzml.read(raw_file, use_index=True)
+    reader, scan_filter_list, total_ion_chromatograms, base_peak_chromatograms = load_data(raw_file)
 
-    scan_filter_list = {'all': []}
-    reader.reset()
-    for scan in reader:
-        idx = scan['index']
-        scan_filter_list['all'].append(idx)
-        if 'filter string' in scan['scanList']['scan'][0]:
-            filter = scan['scanList']['scan'][0]['filter string']
-        elif 'spectrum title' in scan:
-            filter = scan['spectrum title']
-        else:
-            continue    
-        
-        if filter not in scan_filter_list:
-            scan_filter_list[filter] = []
-        scan_filter_list[filter].append(idx)
-
-    # Generate TIC and BPC
-    total_ion_chromatograms = {}
-    base_peak_chromatograms = {}
-    reader.reset()
-    for scan in reader:
-        _ms_level = scan['ms level']
-        if _ms_level not in total_ion_chromatograms:
-            total_ion_chromatograms[_ms_level] = {'time array': [], 'intensity array': []}
-            base_peak_chromatograms[_ms_level] = {'time array': [], 'intensity array': []}
-        _time = scan['scanList']['scan'][0]['scan start time']
-        total_ion_chromatograms[_ms_level]['time array'].append(_time)
-        base_peak_chromatograms[_ms_level]['time array'].append(_time)
-        total_ion_chromatograms[_ms_level]['intensity array'].append(scan['total ion current'])
-        base_peak_chromatograms[_ms_level]['intensity array'].append(scan['base peak intensity'])
-    
-    for _ms_level in total_ion_chromatograms:
-        total_ion_chromatograms[_ms_level]['time array'] = np.array(total_ion_chromatograms[_ms_level]['time array'])
-        total_ion_chromatograms[_ms_level]['intensity array'] = np.array(total_ion_chromatograms[_ms_level]['intensity array'])
-        base_peak_chromatograms[_ms_level]['time array'] = np.array(base_peak_chromatograms[_ms_level]['time array'])
-        base_peak_chromatograms[_ms_level]['intensity array'] = np.array(base_peak_chromatograms[_ms_level]['intensity array'])
-
+# App is laid out in tab format. Two tabs: "Spectrum" and "Chromatogram".
 spectrum_tab, chromatogram_tab = st.tabs(["Spectrum", "Chromatogram"])
 
 with spectrum_tab:
     st.markdown("Explore spectra, scan by scan. Woo!")
 
+    # Spectrum tab contains two columns: settings column on the left (scol1) and plotting column on the right (scol2)
     scol1, scol2 = st.columns([0.3, 0.7])
 
     with scol1:
@@ -211,18 +194,20 @@ with spectrum_tab:
             ## USE settings from scol1
             if 'centroid spectrum' in selected_scan:
                 st.write("Scan contains centroid data.")
-                peaks_ = detect_peaks(selected_scan, threshold = label_threshold, centroid = True)
+                _peaks, _properties = detect_peaks(selected_scan, threshold = label_threshold, centroid = True)
             else:
-                peaks_ = detect_peaks(selected_scan, threshold = label_threshold, centroid = False)
+                _peaks, _properties = detect_peaks(selected_scan, threshold = label_threshold, centroid = False)
+                _peak_centroids = _get_centroid(selected_scan, _peaks, _properties)
             peaks = ColumnDataSource(data=dict(
-                x = selected_scan['m/z array'][peaks_],
-                y = selected_scan['intensity array'][peaks_],
-                desc = ["%.2f" % x for x in selected_scan['m/z array'][peaks_]]
+                x = selected_scan['m/z array'][_peaks],
+                y = selected_scan['intensity array'][_peaks],
+                desc = ["%.2f" % x for x in _peak_centroids]
                 ))
 
             TOOLTIPS = [
                 ("m/z", "@x{0.00}"),
-                ("int", "@y{0.0}")
+                ("int", "@y{0.0}"),
+                ("centroid", "@desc")
                 ]
 
             labels = LabelSet(x='x', y='y', text='desc', source=peaks, text_font_size='8pt', text_color='black')
@@ -252,6 +237,7 @@ with spectrum_tab:
             spectrum_plot.left[0].formatter.precision = 1
             spectrum_plot.y_range.start = 0
             
+            # Ensures full scan window shown even for reduced data
             if 'scanWindowList' in selected_scan['scanList']['scan'][0]:
                 min_mz = selected_scan['scanList']['scan'][0]['scanWindowList']['scanWindow'][0]['scan window lower limit']
                 max_mz = selected_scan['scanList']['scan'][0]['scanWindowList']['scanWindow'][0]['scan window upper limit']
@@ -278,7 +264,8 @@ with spectrum_tab:
 
 with chromatogram_tab:
     st.markdown("Explore chromatograms. Generate eXtracted Ion Chromatograms (XIC) for selected ions.")
-
+    
+    # Chromatogram tab contains two columns: settings column on the left (ccol1) and plotting column on the right (ccol2)
     ccol1, ccol2 = st.columns([0.3, 0.7])
 
     with ccol1:
@@ -287,7 +274,7 @@ with chromatogram_tab:
             st.markdown("### Settings")
 
             chromatogram_type = st.radio("Chromatogram type", ['TIC', 'BPC', 'XIC'], horizontal=True, help="`TIC`: total ion chromatogram.  `BPC`: base peak chromatogram.  `XIC`: extracted ion chromatogram")
-            ms_level = st.selectbox("MS Level", [1,2], index=1, help="Level of MS (i.e. `2` for MS/MS).")
+            ms_level = st.selectbox("MS Level", total_ion_chromatograms.keys(), index=0, help="Level of MS (i.e. `2` for MS/MS).")
             
             if chromatogram_type == 'TIC':
                 selected_chromatogram = total_ion_chromatograms[ms_level]
