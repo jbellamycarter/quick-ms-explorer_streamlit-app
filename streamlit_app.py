@@ -39,7 +39,7 @@ def _get_centroid(spectrum, peaks, properties):
     """Returns centroids for peaks."""
     centroids = np.zeros_like(peaks, dtype='float32')
     for i, peak in enumerate(peaks):
-        _peak_range = range(properties['left_bases'][i], properties['right_bases'][i])
+        _peak_range = range(round(properties['left_ips'][i]), round(properties['right_ips'][i]))
         centroids[i] = np.sum(spectrum['intensity array'][_peak_range] * spectrum['m/z array'][_peak_range]) / spectrum['intensity array'][_peak_range].sum()
     return centroids
 
