@@ -321,3 +321,6 @@ with chromatogram_tab:
             chrom_hover = HoverTool(tooltips=CHROMTOOLTIPS, mode='vline')
             chromatogram_plot.add_tools(chrom_hover, CrosshairTool(dimensions='height'))
             st.bokeh_chart(chromatogram_plot, use_container_width=True)
+
+            if st.button("Show data"):
+                st.write(pd.DataFrame({'m/z': selected_chromatogram['time array'], 'intensity': selected_chromatogram['intensity array']}))
