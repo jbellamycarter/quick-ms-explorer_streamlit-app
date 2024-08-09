@@ -264,7 +264,7 @@ with spectrum_tab:
 
             st.bokeh_chart(spectrum_plot, use_container_width=True)
 
-            if st.button("Show data"):
+            if st.button("Show spectrum data"):
                 st.write(pd.DataFrame({'m/z': selected_scan['m/z array'], 'intensity': selected_scan['intensity array']}))
 
 with chromatogram_tab:
@@ -322,5 +322,5 @@ with chromatogram_tab:
             chromatogram_plot.add_tools(chrom_hover, CrosshairTool(dimensions='height'))
             st.bokeh_chart(chromatogram_plot, use_container_width=True)
 
-            if st.button("Show data"):
+            if st.button("Show chromatogram data"):
                 st.write(pd.DataFrame({'m/z': selected_chromatogram['time array'], 'intensity': selected_chromatogram['intensity array']}))
