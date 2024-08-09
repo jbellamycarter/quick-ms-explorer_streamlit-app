@@ -266,6 +266,9 @@ with spectrum_tab:
 
             if st.button("Show spectrum data"):
                 st.write(pd.DataFrame({'m/z': selected_scan['m/z array'], 'intensity': selected_scan['intensity array']}))
+            
+            if st.button("Show peak list"):
+                st.write(pd.DataFrame({'m/z': selected_scan['m/z array'][_peaks], 'centroid': _peak_centroids, 'intensity': selected_scan['intensity array'][_peaks]}))
 
 with chromatogram_tab:
     st.markdown("Explore chromatograms. Generate eXtracted Ion Chromatograms (XIC) for selected ions.")
