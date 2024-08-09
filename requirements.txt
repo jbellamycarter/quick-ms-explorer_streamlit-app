@@ -1,6 +1,6 @@
 streamlit
 matplotlib
-numpy
+numpy==1.25.0
 pandas
 scipy
 pyteomics
