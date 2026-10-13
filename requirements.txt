@@ -3,6 +3,7 @@ matplotlib
 numpy
 pandas
 scipy
+psims
 pyteomics
 bokeh
 lxml
