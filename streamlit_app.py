@@ -5,6 +5,7 @@ Test streamlit app that plots a scan from an mzML data file.
 """
 
 import streamlit as st
+from streamlit_bokeh import streamlit_bokeh
 import numpy as np
 import pandas as pd
 from scipy import signal
@@ -262,7 +263,7 @@ with spectrum_tab:
             spec_hover = HoverTool(renderers=[r], tooltips=TOOLTIPS)
             spectrum_plot.add_tools(spec_hover)
 
-            st.bokeh_chart(spectrum_plot, use_container_width=True)
+            streamlit_bokeh(spectrum_plot, use_container_width=True)
 
             if st.button("Show spectrum data"):
                 st.write(pd.DataFrame({'m/z': selected_scan['m/z array'], 'intensity': selected_scan['intensity array']}))
@@ -323,7 +324,7 @@ with chromatogram_tab:
             chromatogram_plot.line('time array', 'intensity array', source=selected_chromatogram, line_width=1.5, color='black')
             chrom_hover = HoverTool(tooltips=CHROMTOOLTIPS, mode='vline')
             chromatogram_plot.add_tools(chrom_hover, CrosshairTool(dimensions='height'))
-            st.bokeh_chart(chromatogram_plot, use_container_width=True)
+            streamlit_bokeh(chromatogram_plot, use_container_width=True)
 
             if st.button("Show chromatogram data"):
                 st.write(pd.DataFrame({'time': selected_chromatogram['time array'], 'intensity': selected_chromatogram['intensity array']}))
